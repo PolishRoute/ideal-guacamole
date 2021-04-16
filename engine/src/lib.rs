@@ -366,7 +366,7 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
     Ok(emitter.into_script())
 }
 
-struct GameState {
+pub struct GameState {
     scripts: HashMap<String, Script>,
     memory: HashMap<String, Vec<String>>,
     pc: usize,
@@ -375,7 +375,7 @@ struct GameState {
 }
 
 impl GameState {
-    fn new(directory: impl Into<PathBuf>) -> Self {
+    pub fn new(directory: impl Into<PathBuf>) -> Self {
         let mut state = Self {
             scripts: Default::default(),
             memory: Default::default(),
@@ -415,14 +415,14 @@ impl GameState {
         Some(val)
     }
 
-    fn load_script(&mut self, name: &str) {
+    pub fn load_script(&mut self, name: &str) {
         let path = self.directory.join("Scripts").join(name);
         self.scripts.insert(name.to_string(), load_script(path).unwrap());
         self.current_script = name.to_string();
         self.pc = 0;
     }
 
-    fn set_choice(&mut self, index: usize) {
+    pub fn set_choice(&mut self, index: usize) {
         self.insert(&VarOrConst {
             is_ref: false,
             name: "selected".to_string(),
@@ -432,14 +432,14 @@ impl GameState {
 }
 
 #[derive(Debug)]
-enum StepResult {
+pub enum StepResult {
     Continue,
     Exit,
     Jump(String),
     Choice(Vec<String>),
 }
 
-fn step(state: &mut GameState) -> StepResult {
+pub fn step(state: &mut GameState) -> StepResult {
     let curr_inst = match state.scripts[&state.current_script].code.get(state.pc).cloned() {
         Some(ci) => ci,
         None => return StepResult::Exit,
@@ -513,44 +513,4 @@ fn step(state: &mut GameState) -> StepResult {
     }
     state.pc += 1;
     StepResult::Continue
-}
-
-fn user_choice(choices: &[String]) -> usize {
-    for (idx, choice) in choices.iter().enumerate() {
-        println!(" {}. {}", idx + 1, choice);
-    }
-
-    let mut input = String::new();
-    loop {
-        print!(">> ");
-        if std::io::stdin().read_line(&mut input).is_err() {
-            continue;
-        }
-        match input.trim().parse::<usize>() {
-            Ok(x) if x >= 1 && x <= choices.len() => return x - 1,
-            _ => (),
-        }
-        input.clear();
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut state = GameState::new(r"C:\Users\Host\Downloads\Kanon");
-    loop {
-        match step(&mut state) {
-            StepResult::Continue => {}
-            StepResult::Exit => {
-                println!("// Exitted!");
-                break;
-            }
-            StepResult::Jump(file) => {
-                println!("// Loading script {}", &file);
-                state.load_script(&file);
-            }
-            StepResult::Choice(choices) => {
-                state.set_choice(user_choice(&choices));
-            }
-        }
-    }
-    Ok(())
 }
