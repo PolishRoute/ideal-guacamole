@@ -375,16 +375,16 @@ struct GameState {
 }
 
 impl GameState {
-    fn new(directory: impl Into<PathBuf>, entry: &str) -> Self {
-        let mut s = Self {
+    fn new(directory: impl Into<PathBuf>) -> Self {
+        let mut state = Self {
             scripts: Default::default(),
             memory: Default::default(),
             pc: 0,
-            current_script: entry.to_string(),
+            current_script: "main.scr".to_string(),
             directory: directory.into(),
         };
-        s.load_script(entry);
-        s
+        state.load_script("main.scr");
+        state
     }
 
     fn insert(&mut self, var: &VarOrConst, val: String) {
@@ -416,7 +416,7 @@ impl GameState {
     }
 
     fn load_script(&mut self, name: &str) {
-        let path = self.directory.join(name);
+        let path = self.directory.join("Scripts").join(name);
         self.scripts.insert(name.to_string(), load_script(path).unwrap());
         self.current_script = name.to_string();
         self.pc = 0;
@@ -515,8 +515,7 @@ fn step(state: &mut GameState) -> StepResult {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let directory = r"C:\Users\Host\Downloads\Kanon\Scripts";
-    let mut state = GameState::new(directory, "main.scr");
+    let mut state = GameState::new(r"C:\Users\Host\Downloads\Kanon");
     loop {
         match step(&mut state) {
             StepResult::Continue => {}
