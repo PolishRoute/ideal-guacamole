@@ -421,6 +421,14 @@ impl GameState {
         self.current_script = name.to_string();
         self.pc = 0;
     }
+
+    fn set_choice(&mut self, index: usize) {
+        self.insert(&VarOrConst {
+            is_ref: false,
+            name: "selected".to_string(),
+            index: None,
+        }, (index + 1).to_string());
+    }
 }
 
 #[derive(Debug)]
@@ -428,6 +436,7 @@ enum StepResult {
     Continue,
     Exit,
     Jump(String),
+    Choice(Vec<String>),
 }
 
 fn step(state: &mut GameState) -> StepResult {
@@ -495,16 +504,13 @@ fn step(state: &mut GameState) -> StepResult {
             println!("// Playing {}", file);
         }
         Instr::choice(choices) => {
-            for (idx, choice) in choices.iter().enumerate() {
-                let lhs = state.get_var(choice).unwrap();
-                println!("> {}. {}", idx + 1, lhs);
-            }
-
-            state.insert(&VarOrConst {
-                is_ref: false,
-                name: "selected".to_string(),
-                index: None,
-            }, "1".to_string());
+            state.pc += 1;
+            state.set_choice(0); // default choice
+            return StepResult::Choice(
+                choices.iter().map(|ch| {
+                    state.get_var(ch).unwrap().to_string()
+                }).collect()
+            );
         }
         Instr::jump(file) => {
             return StepResult::Jump(file);
@@ -526,6 +532,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             StepResult::Jump(file) => {
                 println!("// Loading script {}", &file);
                 state.load_script(&file);
+            }
+            StepResult::Choice(choices) => {
+                for (idx, choice) in choices.iter().enumerate() {
+                    println!("> {}. {}", idx + 1, choice);
+                }
+                state.set_choice(0);
             }
         }
     }
