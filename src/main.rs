@@ -240,7 +240,7 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
 
         let parts = split_args(line, 3);
         match &parts[..] {
-            &["cleartext", "!"] => {
+            &["cleartext", ..] => {
                 emitter.emit(Instr::cleartext);
             }
             &["gsetvar", name, "=" | "-" | "+", value] => {
@@ -464,11 +464,6 @@ fn step(state: &mut GameState) -> StepResult {
             println!("// Waiting for {} units of time", delay);
         }
         Instr::branch(lhs, op, rhs, else_target) => {
-            // dbg!(lhs, op, rhs, else_target);
-            // for (i, ii) in script.code.iter().enumerate() {
-            //     println!("{}. {:?}", i, &ii);
-            // }
-
             let lhs = state.get_var(&lhs).unwrap();
             let result = match op {
                 Operator::Equal => lhs == rhs,
@@ -520,6 +515,25 @@ fn step(state: &mut GameState) -> StepResult {
     StepResult::Continue
 }
 
+fn user_choice(choices: &[String]) -> usize {
+    for (idx, choice) in choices.iter().enumerate() {
+        println!(" {}. {}", idx + 1, choice);
+    }
+
+    let mut input = String::new();
+    loop {
+        print!(">> ");
+        if std::io::stdin().read_line(&mut input).is_err() {
+            continue;
+        }
+        match input.trim().parse::<usize>() {
+            Ok(x) if x >= 1 && x <= choices.len() => return x - 1,
+            _ => (),
+        }
+        input.clear();
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = GameState::new(r"C:\Users\Host\Downloads\Kanon");
     loop {
@@ -534,10 +548,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 state.load_script(&file);
             }
             StepResult::Choice(choices) => {
-                for (idx, choice) in choices.iter().enumerate() {
-                    println!("> {}. {}", idx + 1, choice);
-                }
-                state.set_choice(0);
+                state.set_choice(user_choice(&choices));
             }
         }
     }
