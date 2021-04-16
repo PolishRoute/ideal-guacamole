@@ -1,14 +1,16 @@
 #![feature(str_split_as_str)]
 
 use std::io::BufRead;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 
 
 #[allow(non_camel_case_types)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Instr {
+    cleartext,
     setvar(VarOrConst, String),
+    gsetvar(VarOrConst, String),
     bgload(VarOrConst, Option<usize>),
     setimg(VarOrConst, usize, usize),
     delay(usize),
@@ -22,10 +24,12 @@ enum Instr {
 }
 
 #[derive(Eq, PartialEq)]
+#[derive(Copy, Clone)]
 enum Operator {
     Equal,
     NotEqual,
     Less,
+    LessEqual,
 }
 
 impl std::fmt::Debug for Operator {
@@ -34,11 +38,13 @@ impl std::fmt::Debug for Operator {
             Operator::Equal => "==",
             Operator::NotEqual => "!=",
             Operator::Less => "<",
+            Operator::LessEqual => "<=",
         })?;
         Ok(())
     }
 }
 
+#[derive(Clone)]
 struct VarOrConst {
     is_ref: bool,
     name: String,
@@ -166,11 +172,11 @@ impl Emitter {
             }
         }
 
-        Script {code: self.code }
+        Script { code: self.code }
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 enum Label {
     Offset(usize),
     Indexed(usize),
@@ -234,6 +240,15 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
 
         let parts = split_args(line, 3);
         match &parts[..] {
+            &["cleartext", "!"] => {
+                emitter.emit(Instr::cleartext);
+            }
+            &["gsetvar", name, "=" | "-" | "+", value] => {
+                emitter.emit(Instr::gsetvar(
+                    parse_var_ref(name),
+                    unescape(value),
+                ));
+            }
             &["setvar", name, "=" | "-" | "+", value] => {
                 emitter.emit(Instr::setvar(
                     parse_var_ref(name),
@@ -273,11 +288,13 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
             &["if", vref, op, val] => {
                 emitter.begin_branch();
                 emitter.emit(Instr::branch(
-                    parse_var_ref(vref),
+                    // TODO: this needs to be changed...
+                    VarOrConst { is_ref: true, ..parse_var_ref(vref) },
                     match op {
                         "==" => Operator::Equal,
                         "!=" => Operator::NotEqual,
                         "<" => Operator::Less,
+                        "<=" => Operator::LessEqual,
                         op => panic!("unsupported op: {}", op),
                     },
                     val.to_string(),
@@ -331,9 +348,9 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
                     file.to_string(),
                 ));
             }
-            &["choice", alts] => {
+            &["choice", ..] => {
                 emitter.emit(Instr::choice(
-                    alts.split("|").map(parse_var_ref).collect(),
+                    line[6..].trim_start().split("|").map(parse_var_ref).collect(),
                 ));
             }
             &["jump", target] => {
@@ -349,95 +366,169 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
     Ok(emitter.into_script())
 }
 
-fn run_script(script: &Script) {
-    let mut state = HashMap::new();
+struct GameState {
+    scripts: HashMap<String, Script>,
+    memory: HashMap<String, Vec<String>>,
+    pc: usize,
+    current_script: String,
+    directory: PathBuf,
+}
 
+impl GameState {
+    fn new(directory: impl Into<PathBuf>, entry: &str) -> Self {
+        let mut s = Self {
+            scripts: Default::default(),
+            memory: Default::default(),
+            pc: 0,
+            current_script: entry.to_string(),
+            directory: directory.into(),
+        };
+        s.load_script(entry);
+        s
+    }
 
-    let mut pc = 0;
-    loop {
-        match &script.code[pc] {
-            Instr::setvar(ident, value) => {
-                let (name, index) = match ident {
-                    VarOrConst { is_ref: false, name, index } => {
-                        (name, index.unwrap_or(0))
-                    }
-                    _ => unimplemented!(),
-                };
-                let place = state.entry(name).or_insert_with(Vec::new);
-                if index >= place.len() {
-                    place.extend(std::iter::repeat(String::new()).take(index - place.len() + 1));
-                }
-                place[index] = value.to_string();
+    fn insert(&mut self, var: &VarOrConst, val: String) {
+        let (name, index) = match var {
+            VarOrConst { is_ref: false, name, index } => {
+                (name, index.unwrap_or(0))
             }
-            Instr::bgload(file, time) => {
-                println!("// Loading background from {:?} {:?}", file, time);
-            }
-            Instr::setimg(file, x, y) => {
-                println!("// Loading image from {:?} and placing it at {} {}", file, x, y);
-            }
-            Instr::delay(delay) => {
-                println!("// Waiting for {} units of time", delay);
-            }
-            Instr::branch(lhs, op, rhs, else_target) => {
-                let index = lhs.index.unwrap_or(0);
-                let lhs = &state.get(&lhs.name).unwrap()[index];
-                let result = match op {
-                    Operator::Equal => lhs == rhs,
-                    Operator::NotEqual => lhs != rhs,
-                    Operator::Less => lhs < rhs,
-                };
+            _ => unimplemented!(),
+        };
 
-                if result {
-                    pc += 1;
-                } else {
-                    pc = *else_target;
-                }
-                continue;
-            }
-            Instr::text(Some(who), what) => {
-                println!("{}: {}", who, what);
-            }
-            Instr::text(None, what) => {
-                println!("{}", what);
-            }
-            Instr::goto(target) => {
-                pc = match target {
-                    Label::Offset(x) => *x,
-                    _ => unreachable!()
-                };
-                continue;
-            }
-            Instr::sound(file, arg) => {
-                println!("// Playing {} with {:?}", file, arg);
-            }
-            Instr::music(file) => {
-                println!("// Playing {}", file);
-            }
-            Instr::choice(choices) => {
-                for (idx, choice) in choices.iter().enumerate() {
-                    let index = choice.index.unwrap_or(0);
-                    let lhs = &state.get(&choice.name).unwrap()[index];
-                    println!("> {}. {}", idx + 1, lhs);
-                }
-                // TODO: set `selected` to an actual value depending on player's choice
-            }
-            Instr::jump(file) => {
-                println!("// Jumping to {}", file);
-            }
+        let place = self.memory.entry(name.clone()).or_insert_with(Vec::new);
+        if index >= place.len() {
+            place.extend(std::iter::repeat(String::new()).take(index - place.len() + 1));
+        }
+        place[index] = val;
+    }
+
+    fn get_var<'a, 'b: 'a>(&'a self, var: &'b VarOrConst) -> Option<&str> {
+        if !var.is_ref {
+            return Some(&var.name);
         }
 
-        pc += 1;
+        let index = var.index.unwrap_or(0);
+        let val = self.memory
+            .get(&var.name)?
+            .get(index)?
+            .as_str();
+        Some(val)
+    }
+
+    fn load_script(&mut self, name: &str) {
+        let path = self.directory.join(name);
+        self.scripts.insert(name.to_string(), load_script(path).unwrap());
+        self.current_script = name.to_string();
+        self.pc = 0;
     }
 }
 
+#[derive(Debug)]
+enum StepResult {
+    Continue,
+    Exit,
+    Jump(String),
+}
+
+fn step(state: &mut GameState) -> StepResult {
+    let curr_inst = match state.scripts[&state.current_script].code.get(state.pc).cloned() {
+        Some(ci) => ci,
+        None => return StepResult::Exit,
+    };
+    match curr_inst {
+        Instr::cleartext => {
+            println!("// Clearing");
+        }
+        Instr::gsetvar(ident, value) => {
+            state.insert(&ident, value.to_string());
+        }
+        Instr::setvar(ident, value) => {
+            state.insert(&ident, value.to_string());
+        }
+        Instr::bgload(file, time) => {
+            println!("// Loading background from {:?} {:?}", file, time);
+        }
+        Instr::setimg(file, x, y) => {
+            println!("// Loading image from {:?} and placing it at {} {}", file, x, y);
+        }
+        Instr::delay(delay) => {
+            println!("// Waiting for {} units of time", delay);
+        }
+        Instr::branch(lhs, op, rhs, else_target) => {
+            // dbg!(lhs, op, rhs, else_target);
+            // for (i, ii) in script.code.iter().enumerate() {
+            //     println!("{}. {:?}", i, &ii);
+            // }
+
+            let lhs = state.get_var(&lhs).unwrap();
+            let result = match op {
+                Operator::Equal => lhs == rhs,
+                Operator::NotEqual => lhs != rhs,
+                Operator::Less => lhs < &rhs,
+                Operator::LessEqual => lhs <= &rhs,
+            };
+
+            if result {
+                state.pc += 1;
+            } else {
+                state.pc = else_target;
+            }
+            return StepResult::Continue;
+        }
+        Instr::text(Some(who), what) => {
+            println!("{}: {}", who, what);
+        }
+        Instr::text(None, what) => {
+            println!("{}", what);
+        }
+        Instr::goto(target) => {
+            state.pc = match target {
+                Label::Offset(x) => x,
+                _ => unreachable!()
+            };
+            return StepResult::Continue;
+        }
+        Instr::sound(file, arg) => {
+            println!("// Playing {} with {:?}", file, arg);
+        }
+        Instr::music(file) => {
+            println!("// Playing {}", file);
+        }
+        Instr::choice(choices) => {
+            for (idx, choice) in choices.iter().enumerate() {
+                let lhs = state.get_var(choice).unwrap();
+                println!("> {}. {}", idx + 1, lhs);
+            }
+
+            state.insert(&VarOrConst {
+                is_ref: false,
+                name: "selected".to_string(),
+                index: None,
+            }, "1".to_string());
+        }
+        Instr::jump(file) => {
+            return StepResult::Jump(file);
+        }
+    }
+    state.pc += 1;
+    StepResult::Continue
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let script = load_script(r"C:\Users\Host\Downloads\SEEN0080.scr")?;
-
-    run_script(&script);
-
-    // for (_label, inst) in script.code {
-    //     println!("{:?}", inst);
-    // }
-
+    let directory = r"C:\Users\Host\Downloads\Kanon\Scripts";
+    let mut state = GameState::new(directory, "main.scr");
+    loop {
+        match step(&mut state) {
+            StepResult::Continue => {}
+            StepResult::Exit => {
+                println!("// Exitted!");
+                break;
+            }
+            StepResult::Jump(file) => {
+                println!("// Loading script {}", &file);
+                state.load_script(&file);
+            }
+        }
+    }
     Ok(())
 }
