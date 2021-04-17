@@ -440,6 +440,8 @@ pub enum StepResult {
     Text(Option<String>, String),
     Background(PathBuf),
     Image(PathBuf, usize, usize),
+    Sound(String),
+    Music(String),
 }
 
 pub fn step(state: &mut EngineState) -> StepResult {
@@ -505,9 +507,13 @@ pub fn step(state: &mut EngineState) -> StepResult {
         }
         Instr::sound(file, arg) => {
             println!("// Playing {} with {:?}", file, arg);
+            state.pc += 1;
+            return StepResult::Sound(file);
         }
         Instr::music(file) => {
             println!("// Playing {}", file);
+            state.pc += 1;
+            return StepResult::Sound(file);
         }
         Instr::choice(choices) => {
             state.pc += 1;

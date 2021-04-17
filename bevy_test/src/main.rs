@@ -1,5 +1,10 @@
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use bevy::asset::{AssetIo, AssetIoError, AssetPlugin, BoxedFuture, FileAssetIo};
 use bevy::prelude::*;
-use bevy::asset::AssetLoader;
+use bevy::tasks::{IoTaskPool};
+use bevy_kira_audio::AudioChannel;
 
 fn main() {
     App::build()
@@ -11,7 +16,10 @@ fn main() {
             resizable: false,
             ..Default::default()
         })
-        .add_plugins(DefaultPlugins)
+        .add_plugins_with(DefaultPlugins, |group| {
+            group.add_after::<AssetPlugin, _>(LegAssetPlugin)
+        })
+        .add_plugin(bevy_kira_audio::AudioPlugin)
         .add_startup_system(setup.system())
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
@@ -60,6 +68,8 @@ fn setup(
         who: None,
         what: None,
         cursor: 0,
+        sound_channel: AudioChannel::new("sound".to_string()),
+        music_channel: AudioChannel::new("music".to_string()),
     });
     commands.spawn().insert(TypingTimer(Timer::from_seconds(0.05, true)));
 
@@ -109,6 +119,8 @@ struct GameState {
     what: Option<String>,
     cursor: usize,
     choices: Vec<String>,
+    sound_channel: AudioChannel,
+    music_channel: AudioChannel,
 }
 
 fn keyboard_input_system(
@@ -121,7 +133,7 @@ fn keyboard_input_system(
         Query<&mut Handle<ColorMaterial>, With<Background>>,
         Query<&mut Handle<ColorMaterial>, With<Image>>
     )>,
-    background: Query<(Entity, With<Background>)>,
+    audio: Res<bevy_kira_audio::Audio>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Down) {
         state.choice = (state.choice + 1) % 2;
@@ -134,7 +146,7 @@ fn keyboard_input_system(
         }
         render_choices(&mut *text_query.single_mut().unwrap(), &mut state, asset_server);
     } else if keyboard_input.just_pressed(KeyCode::Space) {
-        next(asset_server, &mut state, &mut materials, &mut text_query, &mut color_query)
+        next(asset_server, &mut state, &mut materials, &mut text_query, &mut color_query, audio)
     }
 }
 
@@ -147,6 +159,7 @@ fn next(
         Query<&mut Handle<ColorMaterial>, With<Background>>,
         Query<&mut Handle<ColorMaterial>, With<Image>>,
     )>,
+    audio: Res<bevy_kira_audio::Audio>,
 ) {
     loop {
         match engine::step(&mut state.engine) {
@@ -157,7 +170,6 @@ fn next(
                 break;
             }
             engine::StepResult::Jump(file) => {
-                println!("// Loading script {}", &file);
                 state.engine.load_script(&file);
                 *color_query.q1_mut().single_mut().unwrap() = materials.add(asset_server.load("empty.png").into());
                 continue;
@@ -167,7 +179,7 @@ fn next(
                     materials.add(asset_server.load(path).into());
                 continue;
             }
-            engine::StepResult::Image(path, x, y) => {
+            engine::StepResult::Image(path, ..) => {
                 *color_query.q1_mut().single_mut().unwrap() =
                     materials.add(asset_server.load(path).into());
                 continue;
@@ -176,6 +188,26 @@ fn next(
                 state.choices = choices.clone();
                 render_choices(&mut *text_query.single_mut().unwrap(), &mut state, asset_server);
                 break;
+            }
+            engine::StepResult::Sound(path) => {
+                if path == "~" {
+                    audio.stop_channel(&state.sound_channel);
+                } else {
+                    audio.play_in_channel(
+                        asset_server.load(PathBuf::from(path)),
+                        &state.sound_channel,
+                    );
+                }
+            }
+            engine::StepResult::Music(path) => {
+                if path == "~" {
+                    audio.stop_channel(&state.music_channel);
+                } else {
+                    audio.play_in_channel(
+                        asset_server.load(PathBuf::from(path)),
+                        &state.music_channel,
+                    );
+                }
             }
             _ => (),
         }
@@ -238,5 +270,58 @@ fn typing_system(
             }
             break;
         }
+    }
+}
+
+struct LegArchiveLoader {
+    fallback: Box<dyn AssetIo>,
+    leg: Mutex<leg_archive::Archive>,
+}
+
+impl LegArchiveLoader {
+    fn new(fallback: Box<dyn AssetIo>) -> Self {
+        Self {
+            fallback,
+            leg: Mutex::new(leg_archive::load(r"C:\Users\Host\Downloads\Kanon\SEArchive.legArchive", false).unwrap()),
+        }
+    }
+}
+
+
+impl AssetIo for LegArchiveLoader {
+    fn load_path<'a>(&'a self, path: &'a Path) -> BoxedFuture<'a, Result<Vec<u8>, AssetIoError>> {
+        if let Some(x) = self.leg.lock().unwrap().read(path.to_str().unwrap()) {
+            return Box::pin(std::future::ready(Ok(x.into_vec())));
+        }
+        self.fallback.load_path(path)
+    }
+
+    fn read_directory(&self, path: &Path) -> Result<Box<dyn Iterator<Item=PathBuf>>, AssetIoError> {
+        self.fallback.read_directory(path)
+    }
+
+    fn is_directory(&self, path: &Path) -> bool {
+        self.fallback.is_directory(path)
+    }
+
+    fn watch_path_for_changes(&self, path: &Path) -> Result<(), AssetIoError> {
+        self.fallback.watch_path_for_changes(path)
+    }
+
+    fn watch_for_changes(&self) -> Result<(), AssetIoError> {
+        self.fallback.watch_for_changes()
+    }
+}
+
+struct LegAssetPlugin;
+
+impl Plugin for LegAssetPlugin {
+    fn build(&self, app: &mut AppBuilder) {
+        let task_pool = app.world().get_resource::<IoTaskPool>().unwrap().0.clone();
+        app.insert_resource(
+            AssetServer::new(LegArchiveLoader::new(
+                Box::new(FileAssetIo::new(&"./assets")),
+            ), task_pool)
+        );
     }
 }

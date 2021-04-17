@@ -3,4 +3,5 @@ members = [
     "cli",
     "engine",
     "bevy_test",
+    "leg_archive",
 ]
