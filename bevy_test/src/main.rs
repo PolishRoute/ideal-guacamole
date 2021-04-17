@@ -186,6 +186,7 @@ fn next(
             }
             engine::StepResult::Choice(choices) => {
                 state.choices = choices.clone();
+                dbg!();
                 render_choices(&mut *text_query.single_mut().unwrap(), &mut state, asset_server);
                 break;
             }
