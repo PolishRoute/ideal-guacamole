@@ -433,6 +433,7 @@ impl EngineState {
 
 #[derive(Debug)]
 pub enum StepResult {
+    Clear,
     Continue,
     Exit,
     Jump(String),
@@ -451,9 +452,8 @@ pub fn step(state: &mut EngineState) -> StepResult {
     };
     match curr_inst {
         Instr::cleartext => {
-            // println!("// Clearing");
             state.pc += 1;
-            return StepResult::Text(None, String::new());
+            return StepResult::Clear;
         }
         Instr::gsetvar(ident, value) => {
             state.insert(&ident, value.to_string());

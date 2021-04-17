@@ -16,11 +16,22 @@ fn main() {
             resizable: false,
             ..Default::default()
         })
+        .insert_resource(GameState {
+            engine: engine::EngineState::new(r"C:\Users\Host\Downloads\Kanon"),
+            view: ViewState::Text(TextData {
+                who: None,
+                what: None,
+                cursor: 0,
+            }),
+            sound_channel: AudioChannel::new("sound".to_string()),
+            music_channel: AudioChannel::new("music".to_string()),
+        })
         .add_plugins_with(DefaultPlugins, |group| {
             group.add_after::<AssetPlugin, _>(LegAssetPlugin)
         })
         .add_plugin(bevy_kira_audio::AudioPlugin)
         .add_startup_system(setup.system())
+        .add_startup_system_to_stage(StartupStage::PostStartup, next.system())
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
         .run();
@@ -61,16 +72,6 @@ fn setup(
         ..Default::default()
     }).insert(Overlay);
 
-    commands.insert_resource(GameState {
-        engine: engine::EngineState::new(r"C:\Users\Host\Downloads\Kanon"),
-        view: ViewState::Text(TextData {
-            who: None,
-            what: None,
-            cursor: 0,
-        }),
-        sound_channel: AudioChannel::new("sound".to_string()),
-        music_channel: AudioChannel::new("music".to_string()),
-    });
     commands.spawn().insert(TypingTimer(Timer::from_seconds(0.05, true)));
 
     commands.spawn_bundle(UiCameraBundle::default());
@@ -142,9 +143,9 @@ fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
     asset_server: Res<AssetServer>,
     mut state: ResMut<GameState>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    materials: ResMut<Assets<ColorMaterial>>,
     mut text_query: Query<&mut Text, With<GameText>>,
-    mut color_query: QuerySet<(
+    color_query: QuerySet<(
         Query<&mut Handle<ColorMaterial>, With<Background>>,
         Query<&mut Handle<ColorMaterial>, With<Image>>
     )>,
@@ -169,16 +170,16 @@ fn keyboard_input_system(
     }
 
     if keyboard_input.just_pressed(KeyCode::Space) {
-        next(&asset_server, &mut state, &mut materials, &mut text_query, &mut color_query, audio)
+        next(asset_server, state, materials, text_query, color_query, audio)
     }
 }
 
 fn next(
-    asset_server: &Res<AssetServer>,
-    state: &mut ResMut<GameState>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
-    text_query: &mut Query<&mut Text, With<GameText>>,
-    color_query: &mut QuerySet<(
+    asset_server: Res<AssetServer>,
+    mut state: ResMut<GameState>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut text_query: Query<&mut Text, With<GameText>>,
+    mut color_query: QuerySet<(
         Query<&mut Handle<ColorMaterial>, With<Background>>,
         Query<&mut Handle<ColorMaterial>, With<Image>>,
     )>,
@@ -215,9 +216,9 @@ fn next(
                     choices: choices.clone(),
                     selected: 0,
                 });
-                let GameState { engine, view, .. } = &mut **state;
+                let GameState { engine, view, .. } = &mut *state;
                 if let ViewState::Choice(choice) = view {
-                    render_choices(&mut *text_query.single_mut().unwrap(), engine, asset_server, choice);
+                    render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
                 }
                 break;
             }
