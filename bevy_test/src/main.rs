@@ -14,6 +14,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup.system())
         .add_system(keyboard_input_system.system())
+        .add_system(typing_system.system())
         .run();
 }
 
@@ -21,6 +22,7 @@ struct Background;
 
 struct Overlay;
 
+struct TypingTimer(Timer);
 
 fn setup(
     mut commands: Commands,
@@ -43,7 +45,11 @@ fn setup(
         engine: engine::EngineState::new(r"C:\Users\Host\Downloads\Kanon"),
         choice: 0,
         choices: vec![],
+        who: None,
+        what: None,
+        cursor: 0,
     });
+    commands.spawn().insert(TypingTimer(Timer::from_seconds(0.05, true)));
 
     commands.spawn_bundle(UiCameraBundle::default());
     commands
@@ -87,6 +93,9 @@ struct Image;
 struct GameState {
     engine: engine::EngineState,
     choice: usize,
+    who: Option<String>,
+    what: Option<String>,
+    cursor: usize,
     choices: Vec<String>,
 }
 
@@ -129,40 +138,10 @@ fn next(
 ) {
     loop {
         match engine::step(&mut state.engine) {
-            engine::StepResult::Text(None, what) => {
-                let mut text = text_query.single_mut().unwrap();
-                text.sections = vec![
-                    TextSection {
-                        value: what,
-                        style: TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 20.0,
-                            color: Color::WHITE,
-                        }
-                    }
-                ];
-                break;
-            }
-            engine::StepResult::Text(Some(who), what) => {
-                let mut text = text_query.single_mut().unwrap();
-                text.sections = vec![
-                    TextSection {
-                        value: who + ": ",
-                        style: TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 20.0,
-                            color: Color::RED,
-                        }
-                    },
-                    TextSection {
-                        value: what,
-                        style: TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 20.0,
-                            color: Color::WHITE,
-                        }
-                    }
-                ];
+            engine::StepResult::Text(who, what) => {
+                state.who = who;
+                state.what = Some(what);
+                state.cursor = 0;
                 break;
             }
             engine::StepResult::Jump(file) => {
@@ -207,4 +186,44 @@ fn render_choices(text: &mut Text, state: &mut GameState,
         });
     }
     state.engine.set_choice(state.choice);
+}
+
+fn typing_system(
+    time: Res<Time>,
+    mut state: ResMut<GameState>,
+    asset_server: ResMut<AssetServer>,
+    mut text_query: Query<&mut Text, With<GameText>>,
+    mut query: Query<&mut TypingTimer>,
+) {
+    for mut timer in query.iter_mut() {
+        timer.0.tick(time.delta());
+        if timer.0.just_finished() {
+            state.cursor += 1;
+
+            let mut text = text_query.single_mut().unwrap();
+            text.sections.clear();
+            if let Some(who) = &state.who {
+                text.sections.push(TextSection {
+                    value: format!("{}: ", who),
+                    style: TextStyle {
+                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                        font_size: 20.0,
+                        color: Color::RED,
+                    },
+                });
+            }
+
+            if let Some(what) = &state.what {
+                text.sections.push(TextSection {
+                    value: what.chars().take(state.cursor).collect(),
+                    style: TextStyle {
+                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                        font_size: 20.0,
+                        color: Color::WHITE,
+                    },
+                });
+            }
+            break;
+        }
+    }
 }
