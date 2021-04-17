@@ -513,7 +513,7 @@ pub fn step(state: &mut EngineState) -> StepResult {
         Instr::music(file) => {
             println!("// Playing {}", file);
             state.pc += 1;
-            return StepResult::Sound(file);
+            return StepResult::Music(file);
         }
         Instr::choice(choices) => {
             state.pc += 1;

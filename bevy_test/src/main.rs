@@ -204,7 +204,7 @@ fn next(
                 if path == "~" {
                     audio.stop_channel(&state.music_channel);
                 } else {
-                    audio.play_in_channel(
+                    audio.play_looped_in_channel(
                         asset_server.load(PathBuf::from(path)),
                         &state.music_channel,
                     );
