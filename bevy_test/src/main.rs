@@ -63,11 +63,11 @@ fn setup(
 
     commands.insert_resource(GameState {
         engine: engine::EngineState::new(r"C:\Users\Host\Downloads\Kanon"),
-        choice: 0,
-        choices: vec![],
-        who: None,
-        what: None,
-        cursor: 0,
+        view: ViewState::Text(TextData {
+            who: None,
+            what: None,
+            cursor: 0,
+        }),
         sound_channel: AudioChannel::new("sound".to_string()),
         music_channel: AudioChannel::new("music".to_string()),
     });
@@ -112,15 +112,30 @@ struct GameText;
 
 struct Image;
 
-struct GameState {
-    engine: engine::EngineState,
-    choice: usize,
+#[derive(Debug)]
+enum ViewState {
+    Choice(ChoiceData),
+    Text(TextData),
+}
+
+#[derive(Debug)]
+struct ChoiceData {
+    selected: usize,
+    choices: Vec<String>,
+}
+
+#[derive(Debug)]
+struct TextData {
     who: Option<String>,
     what: Option<String>,
     cursor: usize,
-    choices: Vec<String>,
+}
+
+struct GameState {
+    engine: engine::EngineState,
     sound_channel: AudioChannel,
     music_channel: AudioChannel,
+    view: ViewState,
 }
 
 fn keyboard_input_system(
@@ -135,24 +150,32 @@ fn keyboard_input_system(
     )>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::Down) {
-        state.choice = (state.choice + 1) % 2;
-        render_choices(&mut *text_query.single_mut().unwrap(), &mut state, asset_server);
-    } else if keyboard_input.just_pressed(KeyCode::Up) {
-        if state.choice == 0 {
-            state.choice = state.choices.len() - 1;
-        } else {
-            state.choice -= 1;
+    let GameState { engine, view, .. } = &mut *state;
+    match view {
+        ViewState::Choice(choice) => {
+            if keyboard_input.just_pressed(KeyCode::Down) {
+                choice.selected = (choice.selected + 1) % 2;
+                render_choices(&mut *text_query.single_mut().unwrap(), engine, &*asset_server, choice);
+            } else if keyboard_input.just_pressed(KeyCode::Up) {
+                if choice.selected == 0 {
+                    choice.selected = choice.choices.len() - 1;
+                } else {
+                    choice.selected -= 1;
+                }
+                render_choices(&mut *text_query.single_mut().unwrap(), engine, &*asset_server, choice);
+            }
         }
-        render_choices(&mut *text_query.single_mut().unwrap(), &mut state, asset_server);
-    } else if keyboard_input.just_pressed(KeyCode::Space) {
-        next(asset_server, &mut state, &mut materials, &mut text_query, &mut color_query, audio)
+        ViewState::Text { .. } => {}
+    }
+
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        next(&asset_server, &mut state, &mut materials, &mut text_query, &mut color_query, audio)
     }
 }
 
 fn next(
-    asset_server: Res<AssetServer>,
-    mut state: &mut ResMut<GameState>,
+    asset_server: &Res<AssetServer>,
+    state: &mut ResMut<GameState>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     text_query: &mut Query<&mut Text, With<GameText>>,
     color_query: &mut QuerySet<(
@@ -164,14 +187,17 @@ fn next(
     loop {
         match engine::step(&mut state.engine) {
             engine::StepResult::Text(who, what) => {
-                state.who = who;
-                state.what = Some(what);
-                state.cursor = 0;
+                state.view = ViewState::Text(TextData {
+                    who,
+                    what: Some(what),
+                    cursor: 0,
+                });
                 break;
             }
             engine::StepResult::Jump(file) => {
                 state.engine.load_script(&file);
-                *color_query.q1_mut().single_mut().unwrap() = materials.add(asset_server.load("empty.png").into());
+                *color_query.q1_mut().single_mut().unwrap() =
+                    materials.add(asset_server.load("empty.png").into());
                 continue;
             }
             engine::StepResult::Background(path) => {
@@ -185,9 +211,14 @@ fn next(
                 continue;
             }
             engine::StepResult::Choice(choices) => {
-                state.choices = choices.clone();
-                dbg!();
-                render_choices(&mut *text_query.single_mut().unwrap(), &mut state, asset_server);
+                state.view = ViewState::Choice(ChoiceData {
+                    choices: choices.clone(),
+                    selected: 0,
+                });
+                let GameState { engine, view, .. } = &mut **state;
+                if let ViewState::Choice(choice) = view {
+                    render_choices(&mut *text_query.single_mut().unwrap(), engine, asset_server, choice);
+                }
                 break;
             }
             engine::StepResult::Sound(path) => {
@@ -215,23 +246,27 @@ fn next(
     }
 }
 
-fn render_choices(text: &mut Text, state: &mut GameState,
-                  asset_server: Res<AssetServer>, ) {
+fn render_choices(
+    text: &mut Text,
+    state: &mut engine::EngineState,
+    asset_server: &AssetServer,
+    choice_state: &mut ChoiceData,
+) {
     text.sections.drain(1..);
-    for (idx, choice) in state.choices.as_slice().iter().enumerate() {
+    for (idx, choice) in choice_state.choices.as_slice().iter().enumerate() {
         text.sections.push(TextSection {
             value: choice.to_string() + "\n",
             style: TextStyle {
                 font: asset_server.load("fonts/FiraSans-Bold.ttf"),
                 font_size: 20.0,
-                color: match state.choice == idx {
+                color: match choice_state.selected == idx {
                     false => Color::WHITE,
                     true => Color::RED,
                 },
             },
         });
     }
-    state.engine.set_choice(state.choice);
+    state.set_choice(choice_state.selected);
 }
 
 fn typing_system(
@@ -244,32 +279,34 @@ fn typing_system(
     for mut timer in query.iter_mut() {
         timer.0.tick(time.delta());
         if timer.0.just_finished() {
-            state.cursor += 1;
+            if let ViewState::Text(TextData { cursor, who, what }) = &mut state.view {
+                *cursor += 1;
 
-            let mut text = text_query.single_mut().unwrap();
-            text.sections.clear();
-            if let Some(who) = &state.who {
-                text.sections.push(TextSection {
-                    value: format!("{}: ", who),
-                    style: TextStyle {
-                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                        font_size: 20.0,
-                        color: Color::RED,
-                    },
-                });
-            }
+                let mut text = text_query.single_mut().unwrap();
+                text.sections.clear();
+                if let Some(who) = who {
+                    text.sections.push(TextSection {
+                        value: format!("{}: ", who),
+                        style: TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 20.0,
+                            color: Color::RED,
+                        },
+                    });
+                }
 
-            if let Some(what) = &state.what {
-                text.sections.push(TextSection {
-                    value: what.chars().take(state.cursor).collect(),
-                    style: TextStyle {
-                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                        font_size: 20.0,
-                        color: Color::WHITE,
-                    },
-                });
+                if let Some(what) = what {
+                    text.sections.push(TextSection {
+                        value: what.chars().take(*cursor).collect(),
+                        style: TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 20.0,
+                            color: Color::WHITE,
+                        },
+                    });
+                }
+                break;
             }
-            break;
         }
     }
 }
