@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use bevy::asset::{AssetIo, AssetIoError, AssetPlugin, BoxedFuture, FileAssetIo};
 use bevy::prelude::*;
-use bevy::tasks::{IoTaskPool};
+use bevy::tasks::IoTaskPool;
 use bevy_kira_audio::AudioChannel;
 
 fn main() {
@@ -34,6 +34,7 @@ fn main() {
         .add_startup_system_to_stage(StartupStage::PostStartup, next.system())
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
+        .add_system(image_resizing_system.system())
         .run();
 }
 
@@ -56,9 +57,18 @@ fn setup(
         },
         ..Default::default()
     }).insert(Background);
-    commands.spawn_bundle(SpriteBundle {
+    commands.spawn_bundle(ImageBundle {
         transform: Transform {
             translation: Vec3::new(0.0, 0.0, 1.0),
+            ..Default::default()
+        },
+        style: Style {
+            position_type: PositionType::Absolute,
+            position: Rect {
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..Default::default()
@@ -243,6 +253,30 @@ fn next(
                 }
             }
             _ => (),
+        }
+    }
+}
+
+fn image_resizing_system(
+    mut reader: EventReader<AssetEvent<Texture>>,
+    mut color_query: Query<(&Handle<ColorMaterial>, &mut Style), With<Image>>,
+    textures: Res<Assets<Texture>>,
+) {
+    for event in reader.iter() {
+        if let AssetEvent::Created { handle } = event {
+            let texture_size = if let Some(tex) = textures.get(handle) {
+                tex.size
+            } else {
+                continue;
+            };
+
+            let (material, mut style) = color_query.single_mut().unwrap();
+            if material.id == handle.id {
+                style.size = Size::new(
+                    Val::Px(texture_size.width as f32),
+                    Val::Px(texture_size.height as f32),
+                );
+            }
         }
     }
 }
