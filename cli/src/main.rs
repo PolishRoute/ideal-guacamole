@@ -1,4 +1,4 @@
-use engine::{StepResult, step, GameState};
+use engine::{StepResult, step, EngineState};
 
 fn user_choice(choices: &[String]) -> usize {
     for (idx, choice) in choices.iter().enumerate() {
@@ -20,7 +20,7 @@ fn user_choice(choices: &[String]) -> usize {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut state = GameState::new(r"C:\Users\Host\Downloads\Kanon");
+    let mut state = EngineState::new(r"C:\Users\Host\Downloads\Kanon");
     loop {
         match step(&mut state) {
             StepResult::Continue => {}

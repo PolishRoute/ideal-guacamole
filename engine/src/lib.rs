@@ -366,7 +366,7 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
     Ok(emitter.into_script())
 }
 
-pub struct GameState {
+pub struct EngineState {
     scripts: HashMap<String, Script>,
     memory: HashMap<String, Vec<String>>,
     pc: usize,
@@ -374,7 +374,7 @@ pub struct GameState {
     directory: PathBuf,
 }
 
-impl GameState {
+impl EngineState {
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         let mut state = Self {
             scripts: Default::default(),
@@ -437,16 +437,21 @@ pub enum StepResult {
     Exit,
     Jump(String),
     Choice(Vec<String>),
+    Text(Option<String>, String),
+    Background(PathBuf),
+    Image(PathBuf, usize, usize),
 }
 
-pub fn step(state: &mut GameState) -> StepResult {
+pub fn step(state: &mut EngineState) -> StepResult {
     let curr_inst = match state.scripts[&state.current_script].code.get(state.pc).cloned() {
         Some(ci) => ci,
         None => return StepResult::Exit,
     };
     match curr_inst {
         Instr::cleartext => {
-            println!("// Clearing");
+            // println!("// Clearing");
+            state.pc += 1;
+            return StepResult::Text(None, String::new());
         }
         Instr::gsetvar(ident, value) => {
             state.insert(&ident, value.to_string());
@@ -456,9 +461,17 @@ pub fn step(state: &mut GameState) -> StepResult {
         }
         Instr::bgload(file, time) => {
             println!("// Loading background from {:?} {:?}", file, time);
+            state.pc += 1;
+            let name = state.get_var(&file).unwrap();
+            let path = state.directory.join("CG").join(name);
+            return StepResult::Background(path);
         }
         Instr::setimg(file, x, y) => {
             println!("// Loading image from {:?} and placing it at {} {}", file, x, y);
+            state.pc += 1;
+            let name = state.get_var(&file).unwrap();
+            let path = state.directory.join("CGAlt").join(name);
+            return StepResult::Image(path, x, y);
         }
         Instr::delay(delay) => {
             println!("// Waiting for {} units of time", delay);
@@ -479,11 +492,9 @@ pub fn step(state: &mut GameState) -> StepResult {
             }
             return StepResult::Continue;
         }
-        Instr::text(Some(who), what) => {
-            println!("{}: {}", who, what);
-        }
-        Instr::text(None, what) => {
-            println!("{}", what);
+        Instr::text(who, what) => {
+            state.pc += 1;
+            return StepResult::Text(who, what);
         }
         Instr::goto(target) => {
             state.pc = match target {
