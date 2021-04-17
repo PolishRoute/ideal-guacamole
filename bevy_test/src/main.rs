@@ -31,12 +31,24 @@ fn setup(
 ) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands.spawn_bundle(SpriteBundle {
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
+        },
         ..Default::default()
     }).insert(Background);
     commands.spawn_bundle(SpriteBundle {
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, 1.0),
+            ..Default::default()
+        },
         ..Default::default()
     }).insert(Image);
     commands.spawn_bundle(SpriteBundle {
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, 2.0),
+            ..Default::default()
+        },
         material: materials.add(asset_server.load("overlay.png").into()),
         ..Default::default()
     }).insert(Overlay);
@@ -147,6 +159,7 @@ fn next(
             engine::StepResult::Jump(file) => {
                 println!("// Loading script {}", &file);
                 state.engine.load_script(&file);
+                *color_query.q1_mut().single_mut().unwrap() = materials.add(asset_server.load("empty.png").into());
                 continue;
             }
             engine::StepResult::Background(path) => {
