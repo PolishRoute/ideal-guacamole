@@ -57,7 +57,6 @@ fn main() {
         .add_startup_system_to_stage(StartupStage::PostStartup, scripting_system.system())
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
-        .add_system(image_resizing_system.system())
         .run();
 }
 
@@ -261,30 +260,6 @@ fn scripting_system(
                 }
             }
             _ => (),
-        }
-    }
-}
-
-fn image_resizing_system(
-    mut reader: EventReader<AssetEvent<Texture>>,
-    mut color_query: Query<(&Handle<ColorMaterial>, &mut Style), With<ForegroundImage>>,
-    textures: Res<Assets<Texture>>,
-) {
-    for event in reader.iter() {
-        if let AssetEvent::Created { handle } = event {
-            let texture_size = if let Some(tex) = textures.get(handle) {
-                tex.size
-            } else {
-                continue;
-            };
-
-            let (material, mut style) = color_query.single_mut().unwrap();
-            if material.id == handle.id {
-                style.size = Size::new(
-                    Val::Px(texture_size.width as f32),
-                    Val::Px(texture_size.height as f32),
-                );
-            }
         }
     }
 }
