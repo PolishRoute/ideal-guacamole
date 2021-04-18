@@ -64,8 +64,6 @@ struct BackgroundImage;
 
 struct ForegroundImage;
 
-struct OverlayImage;
-
 struct TypingTimer(Timer);
 
 struct GameText;
@@ -99,35 +97,41 @@ fn setup(
         },
         ..Default::default()
     }).insert(ForegroundImage);
-    commands.spawn_bundle(SpriteBundle {
+    commands.spawn_bundle(ImageBundle {
         transform: Transform {
-            translation: Vec3::new(0.0, 0.0, 2.0),
+            translation: Vec3::new(0.0, 0.0, 1.0),
             ..Default::default()
         },
-        material: materials.add(asset_server.load("overlay.png").into()),
-        ..Default::default()
-    }).insert(OverlayImage);
-
-    commands.spawn().insert(TypingTimer(Timer::from_seconds(0.05, true)));
-
-    commands.spawn_bundle(UiCameraBundle::default());
-    commands
-        .spawn_bundle(TextBundle {
-            style: Style {
-                align_self: AlignSelf::FlexEnd,
-                position_type: PositionType::Absolute,
-                position: Rect {
-                    top: Val::Px(440.0),
-                    left: Val::Px(0.0),
-                    ..Default::default()
-                },
-                max_size: Size::new(Val::Px(725.0), Val::Px(80.0)),
-                margin: Rect::all(Val::Px(10.0)),
-                flex_direction: FlexDirection::Column,
+        style: Style {
+            position_type: PositionType::Absolute,
+            position: Rect {
+                left: Val::Px(28.5),
+                bottom: Val::Px(28.5),
                 ..Default::default()
             },
             ..Default::default()
-        }).insert(GameText);
+        },
+        material: materials.add(asset_server.load("frame.png").into()),
+        ..Default::default()
+    });
+    commands.spawn().insert(TypingTimer(Timer::from_seconds(0.05, true)));
+    commands.spawn_bundle(UiCameraBundle::default());
+    commands.spawn_bundle(TextBundle {
+        style: Style {
+            align_self: AlignSelf::FlexEnd,
+            position_type: PositionType::Absolute,
+            position: Rect {
+                top: Val::Px(400.0),
+                left: Val::Px(28.5 + 10.0),
+                ..Default::default()
+            },
+            max_size: Size::new(Val::Px(725.0 - 38.5 * 2.0), Val::Px(80.0)),
+            margin: Rect::all(Val::Px(10.0)),
+            flex_direction: FlexDirection::Column,
+            ..Default::default()
+        },
+        ..Default::default()
+    }).insert(GameText);
 }
 
 #[derive(Debug)]
