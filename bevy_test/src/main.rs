@@ -319,37 +319,37 @@ fn typing_system(
     mut text_query: Query<&mut Text, With<GameText>>,
     mut query: Query<&mut TypingTimer>,
 ) {
-    for mut timer in query.iter_mut() {
-        timer.0.tick(time.delta());
-        if timer.0.just_finished() {
-            if let ViewState::Text(TextData { cursor, who, what }) = &mut state.view {
-                *cursor += 1;
+    let mut timer = query.single_mut().unwrap();
+    timer.0.tick(time.delta());
+    if !timer.0.just_finished() {
+        return;
+    }
 
-                let mut text = text_query.single_mut().unwrap();
-                text.sections.clear();
-                if let Some(who) = who {
-                    text.sections.push(TextSection {
-                        value: format!("{}: ", who),
-                        style: TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 20.0,
-                            color: Color::RED,
-                        },
-                    });
-                }
+    if let ViewState::Text(TextData { cursor, who, what }) = &mut state.view {
+        *cursor += 1;
 
-                if let Some(what) = what {
-                    text.sections.push(TextSection {
-                        value: what.chars().take(*cursor).collect(),
-                        style: TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 20.0,
-                            color: Color::WHITE,
-                        },
-                    });
-                }
-                break;
-            }
+        let mut text = text_query.single_mut().unwrap();
+        text.sections.clear();
+        if let Some(who) = who {
+            text.sections.push(TextSection {
+                value: format!("{}: ", who),
+                style: TextStyle {
+                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                    font_size: 20.0,
+                    color: Color::RED,
+                },
+            });
+        }
+
+        if let Some(what) = what {
+            text.sections.push(TextSection {
+                value: what.chars().take(*cursor).collect(),
+                style: TextStyle {
+                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                    font_size: 20.0,
+                    color: Color::WHITE,
+                },
+            });
         }
     }
 }
