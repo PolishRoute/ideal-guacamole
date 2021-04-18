@@ -141,7 +141,7 @@ fn setup(
                 left: Val::Px(28.5 + 10.0),
                 ..Default::default()
             },
-            max_size: Size::new(Val::Px(725.0 - 38.5 * 2.0), Val::Px(80.0)),
+            max_size: Size::new(Val::Px(725.0 - 38.5 * 2.0 - 20.0), Val::Px(80.0)),
             margin: Rect::all(Val::Px(10.0)),
             flex_direction: FlexDirection::Column,
             ..Default::default()
