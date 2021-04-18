@@ -250,9 +250,8 @@ fn scripting_system(
                 }
             }
             engine::StepResult::Music(path) => {
-                if path == "~" {
-                    audio.stop_channel(&state.music_channel);
-                } else {
+                audio.stop_channel(&state.music_channel);
+                if path != "~" {
                     audio.play_looped_in_channel(
                         asset_server.load(PathBuf::from(path)),
                         &state.music_channel,
