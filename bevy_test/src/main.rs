@@ -54,18 +54,22 @@ fn main() {
         })
         .add_plugin(bevy_kira_audio::AudioPlugin)
         .add_startup_system(setup.system())
-        .add_startup_system_to_stage(StartupStage::PostStartup, next.system())
+        .add_startup_system_to_stage(StartupStage::PostStartup, scripting_system.system())
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
         .add_system(image_resizing_system.system())
         .run();
 }
 
-struct Background;
+struct BackgroundImage;
 
-struct Overlay;
+struct ForegroundImage;
+
+struct OverlayImage;
 
 struct TypingTimer(Timer);
+
+struct GameText;
 
 fn setup(
     mut commands: Commands,
@@ -79,7 +83,7 @@ fn setup(
             ..Default::default()
         },
         ..Default::default()
-    }).insert(Background);
+    }).insert(BackgroundImage);
     commands.spawn_bundle(ImageBundle {
         transform: Transform {
             translation: Vec3::new(0.0, 0.0, 1.0),
@@ -95,7 +99,7 @@ fn setup(
             ..Default::default()
         },
         ..Default::default()
-    }).insert(Image);
+    }).insert(ForegroundImage);
     commands.spawn_bundle(SpriteBundle {
         transform: Transform {
             translation: Vec3::new(0.0, 0.0, 2.0),
@@ -103,7 +107,7 @@ fn setup(
         },
         material: materials.add(asset_server.load("overlay.png").into()),
         ..Default::default()
-    }).insert(Overlay);
+    }).insert(OverlayImage);
 
     commands.spawn().insert(TypingTimer(Timer::from_seconds(0.05, true)));
 
@@ -123,28 +127,9 @@ fn setup(
                 flex_direction: FlexDirection::Column,
                 ..Default::default()
             },
-            text: Text::with_section(
-                "",
-                TextStyle {
-                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                    font_size: 20.0,
-                    color: Color::WHITE,
-                },
-                TextAlignment {
-                    // vertical: VerticalAlign::Top,
-                    // horizontal: HorizontalAlign::Left,
-                    ..Default::default()
-                },
-            ),
             ..Default::default()
         }).insert(GameText);
-
-    commands.spawn().insert(Timer::from_seconds(0.0, false));
 }
-
-struct GameText;
-
-struct Image;
 
 #[derive(Debug)]
 enum ViewState {
@@ -179,8 +164,8 @@ fn keyboard_input_system(
     materials: ResMut<Assets<ColorMaterial>>,
     mut text_query: Query<&mut Text, With<GameText>>,
     color_query: QuerySet<(
-        Query<&mut Handle<ColorMaterial>, With<Background>>,
-        Query<&mut Handle<ColorMaterial>, With<Image>>
+        Query<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
+        Query<&mut Handle<ColorMaterial>, With<ForegroundImage>>
     )>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
@@ -189,32 +174,32 @@ fn keyboard_input_system(
         ViewState::Choice(choice) => {
             if keyboard_input.just_pressed(KeyCode::Down) {
                 choice.selected = (choice.selected + 1) % 2;
-                render_choices(&mut *text_query.single_mut().unwrap(), engine, &*asset_server, choice);
+                render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
             } else if keyboard_input.just_pressed(KeyCode::Up) {
                 if choice.selected == 0 {
                     choice.selected = choice.choices.len() - 1;
                 } else {
                     choice.selected -= 1;
                 }
-                render_choices(&mut *text_query.single_mut().unwrap(), engine, &*asset_server, choice);
+                render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
             }
         }
         ViewState::Text { .. } => {}
     }
 
     if keyboard_input.just_pressed(KeyCode::Space) {
-        next(asset_server, state, materials, text_query, color_query, audio)
+        scripting_system(asset_server, state, materials, text_query, color_query, audio)
     }
 }
 
-fn next(
+fn scripting_system(
     asset_server: Res<AssetServer>,
     mut state: ResMut<GameState>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut text_query: Query<&mut Text, With<GameText>>,
     mut color_query: QuerySet<(
-        Query<&mut Handle<ColorMaterial>, With<Background>>,
-        Query<&mut Handle<ColorMaterial>, With<Image>>,
+        Query<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
+        Query<&mut Handle<ColorMaterial>, With<ForegroundImage>>,
     )>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
@@ -282,7 +267,7 @@ fn next(
 
 fn image_resizing_system(
     mut reader: EventReader<AssetEvent<Texture>>,
-    mut color_query: Query<(&Handle<ColorMaterial>, &mut Style), With<Image>>,
+    mut color_query: Query<(&Handle<ColorMaterial>, &mut Style), With<ForegroundImage>>,
     textures: Res<Assets<Texture>>,
 ) {
     for event in reader.iter() {
@@ -310,7 +295,7 @@ fn render_choices(
     asset_server: &AssetServer,
     choice_state: &mut ChoiceData,
 ) {
-    text.sections.drain(1..);
+    text.sections.clear();
     for (idx, choice) in choice_state.choices.as_slice().iter().enumerate() {
         text.sections.push(TextSection {
             value: choice.to_string() + "\n",
