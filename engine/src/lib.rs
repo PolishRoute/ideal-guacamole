@@ -375,7 +375,8 @@ pub struct EngineState {
     directory: PathBuf,
     last_music: Option<String>,
     last_background: Option<PathBuf>,
-    last_image: Option<PathBuf>,
+    last_main_image: Option<PathBuf>,
+    last_date_image: Option<PathBuf>,
     pc_to_save: usize,
 }
 
@@ -386,7 +387,8 @@ struct SerializedState {
     pc: usize,
     last_music: Option<String>,
     last_background: Option<PathBuf>,
-    last_image: Option<PathBuf>,
+    last_main_image: Option<PathBuf>,
+    last_date_image: Option<PathBuf>,
 }
 
 impl EngineState {
@@ -399,7 +401,8 @@ impl EngineState {
             directory: directory.into(),
             last_music: None,
             last_background: None,
-            last_image: None,
+            last_date_image: None,
+            last_main_image: None,
             pc_to_save: 0,
         };
         state.load_script("main.scr");
@@ -413,7 +416,8 @@ impl EngineState {
             last_background: self.last_background.clone(),
             current_script: self.current_script.clone(),
             memory: self.memory.clone(),
-            last_image: self.last_image.clone(),
+            last_date_image: self.last_date_image.clone(),
+            last_main_image: self.last_main_image.clone(),
         };
         let file = std::fs::File::create(file)?;
         serde_json::to_writer_pretty(file, &serialized)?;
@@ -436,9 +440,13 @@ impl EngineState {
         if let Some(music) = serialized.last_music {
             steps.push(StepResult::Music(music));
         }
-        if let Some(image) = serialized.last_image {
+        if let Some(image) = serialized.last_main_image {
             // FIXME use actual pos
-            steps.push(StepResult::Image(image, 0, 0));
+            steps.push(StepResult::Image(image, ImageSlot::Main, 0, 0));
+        }
+        if let Some(image) = serialized.last_date_image {
+            // FIXME use actual pos
+            steps.push(StepResult::Image(image, ImageSlot::Date, 0, 0));
         }
         Ok(steps)
     }
@@ -487,6 +495,12 @@ impl EngineState {
 }
 
 #[derive(Debug)]
+pub enum ImageSlot {
+    Date,
+    Main,
+}
+
+#[derive(Debug)]
 pub enum StepResult {
     Clear,
     Continue,
@@ -495,7 +509,7 @@ pub enum StepResult {
     Choice(Vec<String>),
     Text(Option<String>, String),
     Background(PathBuf),
-    Image(PathBuf, usize, usize),
+    Image(PathBuf, ImageSlot, usize, usize),
     Sound(String),
     Music(String),
 }
@@ -530,8 +544,13 @@ pub fn step(state: &mut EngineState) -> StepResult {
             state.pc += 1;
             let name = state.get_var(&file).unwrap();
             let path = state.directory.join("CGAlt").join(name);
-            state.last_image = Some(path.clone());
-            return StepResult::Image(path, x, y);
+            return if &file.name == "DATEIMAGE" {
+                state.last_date_image = Some(path.clone());
+                StepResult::Image(path, ImageSlot::Date, x, y)
+            } else {
+                state.last_main_image = Some(path.clone());
+                StepResult::Image(path, ImageSlot::Main, x, y)
+            };
         }
         Instr::delay(delay) => {
             println!("// Waiting for {} units of time", delay);

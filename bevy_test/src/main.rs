@@ -49,7 +49,11 @@ fn main() {
             sound_channel: AudioChannel::new("sound".to_string()),
             music_channel: AudioChannel::new("music".to_string()),
             steps_after_save_load: VecDeque::new(),
+            background_image: Handle::default(),
+            date_image: Handle::default(),
+            main_image: Handle::default(),
         })
+        .insert_resource(ClearColor(Color::WHITE))
         .add_plugins_with(DefaultPlugins, |group| {
             group.add_after::<AssetPlugin, _>(LegAssetPlugin(
                 directory.join("SEArchive.legArchive")))
@@ -59,12 +63,15 @@ fn main() {
         .add_startup_system_to_stage(StartupStage::PostStartup, scripting_system.system())
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
+        .add_system(image_presenting_system.system())
         .run();
 }
 
 struct BackgroundImage;
 
 struct ForegroundImage;
+
+struct DateImage;
 
 struct TypingTimer(Timer);
 
@@ -83,9 +90,16 @@ fn setup(
         },
         ..Default::default()
     }).insert(BackgroundImage);
-    commands.spawn_bundle(ImageBundle {
+    commands.spawn_bundle(SpriteBundle {
         transform: Transform {
             translation: Vec3::new(0.0, 0.0, 1.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    }).insert(ForegroundImage);
+    commands.spawn_bundle(ImageBundle {
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, 2.0),
             ..Default::default()
         },
         style: Style {
@@ -98,10 +112,10 @@ fn setup(
             ..Default::default()
         },
         ..Default::default()
-    }).insert(ForegroundImage);
+    }).insert(DateImage);
     commands.spawn_bundle(ImageBundle {
         transform: Transform {
-            translation: Vec3::new(0.0, 0.0, 1.0),
+            translation: Vec3::new(0.0, 0.0, 3.0),
             ..Default::default()
         },
         style: Style {
@@ -161,6 +175,9 @@ struct GameState {
     music_channel: AudioChannel,
     view: ViewState,
     steps_after_save_load: VecDeque<engine::StepResult>,
+    main_image: Handle<ColorMaterial>,
+    date_image: Handle<ColorMaterial>,
+    background_image: Handle<ColorMaterial>,
 }
 
 fn keyboard_input_system(
@@ -169,10 +186,6 @@ fn keyboard_input_system(
     mut state: ResMut<GameState>,
     materials: ResMut<Assets<ColorMaterial>>,
     mut text_query: Query<&mut Text, With<GameText>>,
-    color_query: QuerySet<(
-        Query<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
-        Query<&mut Handle<ColorMaterial>, With<ForegroundImage>>
-    )>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
     if keyboard_input.just_pressed(KeyCode::F5) {
@@ -186,7 +199,7 @@ fn keyboard_input_system(
         match state.engine.load("data.sav") {
             Ok(serialized) => {
                 state.steps_after_save_load = serialized.into();
-                scripting_system(asset_server, state, materials, text_query, color_query, audio);
+                scripting_system(asset_server, state, materials, text_query, audio);
                 println!("Loaded!");
             }
             Err(e) => println!("Not loaded: {}", e),
@@ -213,7 +226,7 @@ fn keyboard_input_system(
     }
 
     if keyboard_input.just_pressed(KeyCode::Space) {
-        scripting_system(asset_server, state, materials, text_query, color_query, audio)
+        scripting_system(asset_server, state, materials, text_query, audio)
     }
 }
 
@@ -222,14 +235,10 @@ fn scripting_system(
     mut state: ResMut<GameState>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut text_query: Query<&mut Text, With<GameText>>,
-    mut color_query: QuerySet<(
-        Query<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
-        Query<&mut Handle<ColorMaterial>, With<ForegroundImage>>,
-    )>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
     loop {
-        let step = match state.steps_after_save_load.pop_front(){
+        let step = match state.steps_after_save_load.pop_front() {
             Some(step) => step,
             None => engine::step(&mut state.engine)
         };
@@ -245,18 +254,20 @@ fn scripting_system(
             }
             engine::StepResult::Jump(file) => {
                 state.engine.load_script(&file);
-                *color_query.q1_mut().single_mut().unwrap() =
-                    materials.add(asset_server.load("empty.png").into());
+                state.main_image = materials.add(asset_server.load("empty.png").into());
+                state.date_image = materials.add(asset_server.load("empty.png").into());
                 continue;
             }
             engine::StepResult::Background(path) => {
-                *color_query.q0_mut().single_mut().unwrap() =
-                    materials.add(asset_server.load(path).into());
+                state.background_image = materials.add(asset_server.load(path).into());
                 continue;
             }
-            engine::StepResult::Image(path, ..) => {
-                *color_query.q1_mut().single_mut().unwrap() =
-                    materials.add(asset_server.load(path).into());
+            engine::StepResult::Image(path, engine::ImageSlot::Main, _, _) => {
+                state.main_image = materials.add(asset_server.load(path).into());
+                continue;
+            }
+            engine::StepResult::Image(path, engine::ImageSlot::Date, _, _) => {
+                state.date_image = materials.add(asset_server.load(path).into());
                 continue;
             }
             engine::StepResult::Choice(choices) => {
@@ -356,6 +367,35 @@ fn typing_system(
                 },
             });
         }
+    }
+}
+
+fn image_presenting_system(
+    state: Res<GameState>,
+    materials: Res<Assets<ColorMaterial>>,
+    textures: Res<Assets<Texture>>,
+    mut color_query: QuerySet<(
+        Query<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
+        Query<&mut Handle<ColorMaterial>, With<ForegroundImage>>,
+        Query<&mut Handle<ColorMaterial>, With<DateImage>>,
+    )>,
+) {
+    let is_texture_loaded = |handle: &Handle<ColorMaterial>| -> bool {
+        materials
+            .get(handle)
+            .and_then(|mat| mat.texture.as_ref())
+            .and_then(|tex| textures.get(tex))
+            .is_some()
+    };
+
+    if is_texture_loaded(&state.background_image) {
+        *color_query.q0_mut().single_mut().unwrap() = state.background_image.clone();
+    }
+    if is_texture_loaded(&state.main_image) {
+        *color_query.q1_mut().single_mut().unwrap() = state.main_image.clone();
+    }
+    if is_texture_loaded(&state.date_image) {
+        *color_query.q2_mut().single_mut().unwrap() = state.date_image.clone();
     }
 }
 
