@@ -369,7 +369,7 @@ fn load_script(path: impl AsRef<Path>) -> Result<Script, Box<dyn std::error::Err
 
 pub struct EngineState {
     scripts: HashMap<String, Script>,
-    memory: HashMap<String, Vec<String>>,
+    memory: HashMap<String, HashMap<usize, String>>,
     pc: usize,
     current_script: String,
     directory: PathBuf,
@@ -381,7 +381,7 @@ pub struct EngineState {
 
 #[derive(Serialize, Deserialize)]
 struct SerializedState {
-    memory: HashMap<String, Vec<String>>,
+    memory: HashMap<String, HashMap<usize, String>>,
     current_script: String,
     pc: usize,
     last_music: Option<String>,
@@ -451,11 +451,10 @@ impl EngineState {
             _ => unimplemented!(),
         };
 
-        let place = self.memory.entry(name.clone()).or_insert_with(Vec::new);
-        if index >= place.len() {
-            place.extend(std::iter::repeat(String::new()).take(index - place.len() + 1));
-        }
-        place[index] = val;
+        self.memory
+            .entry(name.clone())
+            .or_insert_with(HashMap::new)
+            .insert(index, val);
     }
 
     fn get_var<'a, 'b: 'a>(&'a self, var: &'b VarOrConst) -> Option<&str> {
@@ -466,7 +465,7 @@ impl EngineState {
         let index = var.index.unwrap_or(0);
         let val = self.memory
             .get(&var.name)?
-            .get(index)?
+            .get(&index)?
             .as_str();
         Some(val)
     }
