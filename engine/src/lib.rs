@@ -1,9 +1,10 @@
 #![feature(str_split_as_str)]
 
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
@@ -372,6 +373,20 @@ pub struct EngineState {
     pc: usize,
     current_script: String,
     directory: PathBuf,
+    last_music: Option<String>,
+    last_background: Option<PathBuf>,
+    last_image: Option<PathBuf>,
+    pc_to_save: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializedState {
+    memory: HashMap<String, Vec<String>>,
+    current_script: String,
+    pc: usize,
+    last_music: Option<String>,
+    last_background: Option<PathBuf>,
+    last_image: Option<PathBuf>,
 }
 
 impl EngineState {
@@ -382,9 +397,50 @@ impl EngineState {
             pc: 0,
             current_script: "main.scr".to_string(),
             directory: directory.into(),
+            last_music: None,
+            last_background: None,
+            last_image: None,
+            pc_to_save: 0,
         };
         state.load_script("main.scr");
         state
+    }
+
+    pub fn save(&self, file: impl AsRef<Path>) -> Result<(), std::io::Error> {
+        let serialized = SerializedState {
+            pc: self.pc_to_save,
+            last_music: self.last_music.clone(),
+            last_background: self.last_background.clone(),
+            current_script: self.current_script.clone(),
+            memory: self.memory.clone(),
+            last_image: self.last_image.clone(),
+        };
+        let file = std::fs::File::create(file)?;
+        serde_json::to_writer_pretty(file, &serialized)?;
+        Ok(())
+    }
+
+    pub fn load(&mut self, file: impl AsRef<Path>) -> Result<Vec<StepResult>, std::io::Error> {
+        let file = std::fs::File::open(file)?;
+        let serialized: SerializedState = serde_json::from_reader(file)?;
+
+        self.load_script(&serialized.current_script);
+        self.pc = serialized.pc;
+        self.current_script = serialized.current_script;
+        self.memory = serialized.memory;
+
+        let mut steps = vec![];
+        if let Some(background) = serialized.last_background {
+            steps.push(StepResult::Background(background));
+        }
+        if let Some(music) = serialized.last_music {
+            steps.push(StepResult::Music(music));
+        }
+        if let Some(image) = serialized.last_image {
+            // FIXME use actual pos
+            steps.push(StepResult::Image(image, 0, 0));
+        }
+        Ok(steps)
     }
 
     fn insert(&mut self, var: &VarOrConst, val: String) {
@@ -450,6 +506,7 @@ pub fn step(state: &mut EngineState) -> StepResult {
         Some(ci) => ci,
         None => return StepResult::Exit,
     };
+    println!("Executing {} @ {}", &state.current_script, state.pc);
     match curr_inst {
         Instr::cleartext => {
             state.pc += 1;
@@ -466,6 +523,7 @@ pub fn step(state: &mut EngineState) -> StepResult {
             state.pc += 1;
             let name = state.get_var(&file).unwrap();
             let path = state.directory.join("CG").join(name);
+            state.last_background = Some(path.clone());
             return StepResult::Background(path);
         }
         Instr::setimg(file, x, y) => {
@@ -473,6 +531,7 @@ pub fn step(state: &mut EngineState) -> StepResult {
             state.pc += 1;
             let name = state.get_var(&file).unwrap();
             let path = state.directory.join("CGAlt").join(name);
+            state.last_image = Some(path.clone());
             return StepResult::Image(path, x, y);
         }
         Instr::delay(delay) => {
@@ -495,6 +554,7 @@ pub fn step(state: &mut EngineState) -> StepResult {
             return StepResult::Continue;
         }
         Instr::text(who, what) => {
+            state.pc_to_save = state.pc;
             state.pc += 1;
             return StepResult::Text(who, what);
         }
@@ -512,10 +572,12 @@ pub fn step(state: &mut EngineState) -> StepResult {
         }
         Instr::music(file) => {
             println!("// Playing {}", file);
+            state.last_music = Some(file.clone());
             state.pc += 1;
             return StepResult::Music(file);
         }
         Instr::choice(choices) => {
+            state.pc_to_save = state.pc;
             state.pc += 1;
             state.set_choice(0); // default choice
             return StepResult::Choice(

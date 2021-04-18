@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -47,6 +48,7 @@ fn main() {
             }),
             sound_channel: AudioChannel::new("sound".to_string()),
             music_channel: AudioChannel::new("music".to_string()),
+            steps_after_save_load: VecDeque::new(),
         })
         .add_plugins_with(DefaultPlugins, |group| {
             group.add_after::<AssetPlugin, _>(LegAssetPlugin(
@@ -158,6 +160,7 @@ struct GameState {
     sound_channel: AudioChannel,
     music_channel: AudioChannel,
     view: ViewState,
+    steps_after_save_load: VecDeque<engine::StepResult>,
 }
 
 fn keyboard_input_system(
@@ -172,6 +175,25 @@ fn keyboard_input_system(
     )>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
+    if keyboard_input.just_pressed(KeyCode::F5) {
+        match state.engine.save("data.sav") {
+            Ok(()) => println!("Saved!"),
+            Err(e) => println!("Not saved: {}", e),
+        };
+        return;
+    }
+    if keyboard_input.just_pressed(KeyCode::F6) {
+        match state.engine.load("data.sav") {
+            Ok(serialized) => {
+                state.steps_after_save_load = serialized.into();
+                scripting_system(asset_server, state, materials, text_query, color_query, audio);
+                println!("Loaded!");
+            }
+            Err(e) => println!("Not loaded: {}", e),
+        };
+        return;
+    }
+
     let GameState { engine, view, .. } = &mut *state;
     match view {
         ViewState::Choice(choice) => {
@@ -207,7 +229,12 @@ fn scripting_system(
     audio: Res<bevy_kira_audio::Audio>,
 ) {
     loop {
-        match engine::step(&mut state.engine) {
+        let step = match state.steps_after_save_load.pop_front(){
+            Some(step) => step,
+            None => engine::step(&mut state.engine)
+        };
+
+        match step {
             engine::StepResult::Text(who, what) => {
                 state.view = ViewState::Text(TextData {
                     who,
