@@ -6,7 +6,29 @@ use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use bevy_kira_audio::AudioChannel;
 
+fn is_game_directory(path: impl AsRef<Path>) -> bool {
+    let path = path.as_ref();
+    let is_game_dir = path.exists()
+        && path.is_dir()
+        && path.join("Scripts").exists();
+    if !is_game_dir {
+        println!("Path '{}' is not a valid game directory", path.display());
+    }
+    is_game_dir
+}
+
+fn get_game_directory() -> Option<PathBuf> {
+    std::env::args_os().nth(1).map(PathBuf::from)
+        .filter(|d| is_game_directory(d))
+        .or_else(|| std::env::current_dir().ok())
+        .filter(|d| is_game_directory(d))
+}
+
 fn main() {
+    let directory = get_game_directory()
+        .unwrap_or_else(|| r"C:\Users\Host\Downloads\Kanon".into());
+    println!("Loading game files from '{}'", directory.display());
+
     App::build()
         .insert_resource(WindowDescriptor {
             title: "Madenon".to_string(),
@@ -17,7 +39,7 @@ fn main() {
             ..Default::default()
         })
         .insert_resource(GameState {
-            engine: engine::EngineState::new(r"C:\Users\Host\Downloads\Kanon"),
+            engine: engine::EngineState::new(&directory),
             view: ViewState::Text(TextData {
                 who: None,
                 what: None,
@@ -27,7 +49,8 @@ fn main() {
             music_channel: AudioChannel::new("music".to_string()),
         })
         .add_plugins_with(DefaultPlugins, |group| {
-            group.add_after::<AssetPlugin, _>(LegAssetPlugin)
+            group.add_after::<AssetPlugin, _>(LegAssetPlugin(
+                directory.join("SEArchive.legArchive")))
         })
         .add_plugin(bevy_kira_audio::AudioPlugin)
         .add_startup_system(setup.system())
@@ -352,10 +375,10 @@ struct LegArchiveLoader {
 }
 
 impl LegArchiveLoader {
-    fn new(fallback: Box<dyn AssetIo>) -> Self {
+    fn new(fallback: Box<dyn AssetIo>, archive_path: impl AsRef<Path>) -> Self {
         Self {
             fallback,
-            leg: Mutex::new(leg_archive::load(r"C:\Users\Host\Downloads\Kanon\SEArchive.legArchive", false).unwrap()),
+            leg: Mutex::new(leg_archive::load(archive_path, false).unwrap()),
         }
     }
 }
@@ -386,7 +409,7 @@ impl AssetIo for LegArchiveLoader {
     }
 }
 
-struct LegAssetPlugin;
+struct LegAssetPlugin(PathBuf);
 
 impl Plugin for LegAssetPlugin {
     fn build(&self, app: &mut AppBuilder) {
@@ -394,6 +417,7 @@ impl Plugin for LegAssetPlugin {
         app.insert_resource(
             AssetServer::new(LegArchiveLoader::new(
                 Box::new(FileAssetIo::new(&"./assets")),
+                &self.0,
             ), task_pool)
         );
     }
