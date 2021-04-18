@@ -41,11 +41,7 @@ fn main() {
         })
         .insert_resource(GameState {
             engine: engine::EngineState::new(&directory),
-            view: ViewState::Text(TextData {
-                who: None,
-                what: None,
-                cursor: 0,
-            }),
+            view: ViewState::JustStarted,
             sound_channel: AudioChannel::new("sound".to_string()),
             music_channel: AudioChannel::new("music".to_string()),
             steps_after_save_load: VecDeque::new(),
@@ -152,6 +148,7 @@ fn setup(
 
 #[derive(Debug)]
 enum ViewState {
+    JustStarted,
     Choice(ChoiceData),
     Text(TextData),
 }
@@ -223,6 +220,7 @@ fn keyboard_input_system(
             }
         }
         ViewState::Text { .. } => {}
+        ViewState::JustStarted => {}
     }
 
     if keyboard_input.just_pressed(KeyCode::Space) {
