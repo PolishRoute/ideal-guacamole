@@ -1,6 +1,7 @@
-use std::path::Path;
-use std::io::{Seek, SeekFrom, Read, BufRead, BufReader};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::Range;
+use std::path::Path;
 
 #[derive(Debug)]
 struct ArchiveEntry {
@@ -9,7 +10,7 @@ struct ArchiveEntry {
 }
 
 pub struct Archive {
-    buffer: BufReader<std::fs::File>,
+    reader: BufReader<File>,
     files: Vec<ArchiveEntry>,
     case_sensitive: bool,
 }
@@ -28,9 +29,9 @@ impl Archive {
         let Range { start, end } = entry.range.clone();
         let len = (end - start) as usize;
 
-        self.buffer.seek(SeekFrom::Start(start)).ok()?;
+        self.reader.seek(SeekFrom::Start(start)).ok()?;
         let mut buf = vec![0u8; len];
-        self.buffer.read_exact(&mut buf).ok()?;
+        self.reader.read_exact(&mut buf).ok()?;
         Some(buf.into_boxed_slice())
     }
 }
@@ -38,8 +39,8 @@ impl Archive {
 const ENDTABLEIDENTIFICATION: &[u8; 10] = b"LEGARCHTBL";
 
 pub fn load(path: impl AsRef<Path>, case_sensitive: bool) -> Result<Archive, Box<dyn std::error::Error>> {
-    let file = std::fs::File::open(path.as_ref())?;
-    let mut reader = std::io::BufReader::new(file);
+    let file = File::open(path.as_ref())?;
+    let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::End(-8))?;
 
     let start_pos = {
@@ -64,8 +65,8 @@ pub fn load(path: impl AsRef<Path>, case_sensitive: bool) -> Result<Archive, Box
     let mut files = Vec::with_capacity(total_files as usize);
     let mut file_name = Vec::new();
     for _ in 0..total_files {
-        reader.read_until(b'\0', &mut file_name)?;
-        let name = std::str::from_utf8(&file_name[..file_name.len() - 1])?;
+        let read = reader.read_until(b'\0', &mut file_name)?;
+        let name = std::str::from_utf8(&file_name[..read - 1])?;
 
         let position = {
             let mut x = [0u8; 8];
@@ -88,7 +89,7 @@ pub fn load(path: impl AsRef<Path>, case_sensitive: bool) -> Result<Archive, Box
     }
 
     Ok(Archive {
-        buffer: reader,
+        reader,
         files,
         case_sensitive,
     })

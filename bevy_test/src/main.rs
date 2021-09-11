@@ -27,7 +27,7 @@ fn get_game_directory() -> Option<PathBuf> {
 
 fn main() {
     let directory = get_game_directory()
-        .unwrap_or_else(|| r"C:\Users\Host\Downloads\Kanon".into());
+        .unwrap_or_else(|| r"D:\Users\Host\Downloads\Kanon".into());
     println!("Loading game files from '{}'", directory.display());
 
     App::build()
@@ -60,6 +60,7 @@ fn main() {
         .add_system(keyboard_input_system.system())
         .add_system(typing_system.system())
         .add_system(image_presenting_system.system())
+        .add_system(choice_system.system())
         .run();
 }
 
@@ -159,6 +160,20 @@ struct ChoiceData {
     choices: Vec<String>,
 }
 
+impl ChoiceData {
+    fn up(&mut self) {
+        if self.selected == 0 {
+            self.selected = self.choices.len() - 1;
+        } else {
+            self.selected -= 1;
+        }
+    }
+
+    fn down(&mut self) {
+        self.selected = (self.selected + 1) % self.choices.len();
+    }
+}
+
 #[derive(Debug)]
 struct TextData {
     who: Option<String>,
@@ -182,7 +197,6 @@ fn keyboard_input_system(
     asset_server: Res<AssetServer>,
     mut state: ResMut<GameState>,
     materials: ResMut<Assets<ColorMaterial>>,
-    mut text_query: Query<&mut Text, With<GameText>>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
     if keyboard_input.just_pressed(KeyCode::F5) {
@@ -192,11 +206,12 @@ fn keyboard_input_system(
         };
         return;
     }
+
     if keyboard_input.just_pressed(KeyCode::F6) {
         match state.engine.load("data.sav") {
             Ok(serialized) => {
                 state.steps_after_save_load = serialized.into();
-                scripting_system(asset_server, state, materials, text_query, audio);
+                scripting_system(asset_server, state, materials, audio);
                 println!("Loaded!");
             }
             Err(e) => println!("Not loaded: {}", e),
@@ -204,27 +219,22 @@ fn keyboard_input_system(
         return;
     }
 
-    let GameState { engine, view, .. } = &mut *state;
+    let GameState { view, .. } = &mut *state;
     match view {
         ViewState::Choice(choice) => {
             if keyboard_input.just_pressed(KeyCode::Down) {
-                choice.selected = (choice.selected + 1) % 2;
-                render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
+                choice.down();
             } else if keyboard_input.just_pressed(KeyCode::Up) {
-                if choice.selected == 0 {
-                    choice.selected = choice.choices.len() - 1;
-                } else {
-                    choice.selected -= 1;
-                }
-                render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
+                choice.up();
             }
         }
-        ViewState::Text { .. } => {}
+        ViewState::Text(_) => {}
         ViewState::JustStarted => {}
     }
 
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        scripting_system(asset_server, state, materials, text_query, audio)
+    if keyboard_input.just_pressed(KeyCode::Space) ||
+        keyboard_input.just_pressed(KeyCode::Return) {
+        scripting_system(asset_server, state, materials, audio)
     }
 }
 
@@ -232,7 +242,6 @@ fn scripting_system(
     asset_server: Res<AssetServer>,
     mut state: ResMut<GameState>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut text_query: Query<&mut Text, With<GameText>>,
     audio: Res<bevy_kira_audio::Audio>,
 ) {
     loop {
@@ -273,10 +282,6 @@ fn scripting_system(
                     choices: choices.clone(),
                     selected: 0,
                 });
-                let GameState { engine, view, .. } = &mut *state;
-                if let ViewState::Choice(choice) = view {
-                    render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
-                }
                 break;
             }
             engine::StepResult::Sound(path) => {
@@ -324,6 +329,21 @@ fn render_choices(
         });
     }
     state.set_choice(choice_state.selected);
+}
+
+fn choice_system(
+    asset_server: Res<AssetServer>,
+    mut state: ResMut<GameState>,
+    mut text_query: Query<&mut Text, With<GameText>>,
+) {
+    let GameState { engine, view, .. } = &mut *state;
+    match view {
+        ViewState::Choice(choice) => {
+            render_choices(&mut *text_query.single_mut().unwrap(), engine, &asset_server, choice);
+        }
+        ViewState::JustStarted => {}
+        ViewState::Text(_) => {}
+    }
 }
 
 fn typing_system(
@@ -444,7 +464,7 @@ impl Plugin for LegAssetPlugin {
         let task_pool = app.world().get_resource::<IoTaskPool>().unwrap().0.clone();
         app.insert_resource(
             AssetServer::new(LegArchiveLoader::new(
-                Box::new(FileAssetIo::new(&"./assets")),
+                Box::new(FileAssetIo::new(&"assets")),
                 &self.0,
             ), task_pool)
         );
