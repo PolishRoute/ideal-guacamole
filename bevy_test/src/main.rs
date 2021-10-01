@@ -27,10 +27,10 @@ fn get_game_directory() -> Option<PathBuf> {
 
 fn main() {
     let directory = get_game_directory()
-        .unwrap_or_else(|| r"D:\Users\Host\Downloads\Kanon".into());
+        .unwrap_or_else(|| r"C:\mkd\Downloads\Kanon".into());
     println!("Loading game files from '{}'", directory.display());
 
-    App::build()
+    App::new()
         .insert_resource(WindowDescriptor {
             title: "Madenon".to_string(),
             width: 725.,
@@ -393,9 +393,9 @@ fn image_presenting_system(
     materials: Res<Assets<ColorMaterial>>,
     textures: Res<Assets<Texture>>,
     mut color_query: QuerySet<(
-        Query<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
-        Query<&mut Handle<ColorMaterial>, With<ForegroundImage>>,
-        Query<&mut Handle<ColorMaterial>, With<DateImage>>,
+        QueryState<&mut Handle<ColorMaterial>, With<BackgroundImage>>,
+        QueryState<&mut Handle<ColorMaterial>, With<ForegroundImage>>,
+        QueryState<&mut Handle<ColorMaterial>, With<DateImage>>,
     )>,
 ) {
     let is_texture_loaded = |handle: &Handle<ColorMaterial>| -> bool {
@@ -407,13 +407,13 @@ fn image_presenting_system(
     };
 
     if is_texture_loaded(&state.background_image) {
-        *color_query.q0_mut().single_mut().unwrap() = state.background_image.clone();
+        *color_query.q0().single_mut().unwrap() = state.background_image.clone();
     }
     if is_texture_loaded(&state.main_image) {
-        *color_query.q1_mut().single_mut().unwrap() = state.main_image.clone();
+        *color_query.q1().single_mut().unwrap() = state.main_image.clone();
     }
     if is_texture_loaded(&state.date_image) {
-        *color_query.q2_mut().single_mut().unwrap() = state.date_image.clone();
+        *color_query.q2().single_mut().unwrap() = state.date_image.clone();
     }
 }
 
@@ -460,8 +460,8 @@ impl AssetIo for LegArchiveLoader {
 struct LegAssetPlugin(PathBuf);
 
 impl Plugin for LegAssetPlugin {
-    fn build(&self, app: &mut AppBuilder) {
-        let task_pool = app.world().get_resource::<IoTaskPool>().unwrap().0.clone();
+    fn build(&self, app: &mut App) {
+        let task_pool = app.world.get_resource::<IoTaskPool>().unwrap().0.clone();
         app.insert_resource(
             AssetServer::new(LegArchiveLoader::new(
                 Box::new(FileAssetIo::new(&"assets")),

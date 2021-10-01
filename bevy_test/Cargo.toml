@@ -4,10 +4,8 @@ version = "0.1.0"
 authors = ["darksv <darek969-12@o2.pl>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-bevy = { version = "0.5.0", features = [ "bevy_gilrs", "bevy_wgpu", "bevy_winit", "render", "png", "jpeg"], default-features = false }
+bevy = { git = "https://github.com/bevyengine/bevy.git", rev = "f6b42b86691bdea92613df3e1e754dbc9455dbc2", features = ["bevy_gilrs", "bevy_wgpu", "bevy_winit", "render", "png", "jpeg"], default-features = false }
 engine = { path = "../engine" }
 leg_archive = { path = "../leg_archive" }
-bevy_kira_audio = { version = "0.4.0", features = ["ogg"], default-features = false }
+bevy_kira_audio = { git = "https://github.com/NiklasEi/bevy_kira_audio.git", rev = "3c78ce593d8ebe3ba9f065a04f514a594cadd613", features = ["ogg"], default-features = false }
